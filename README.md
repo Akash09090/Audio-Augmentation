@@ -5,6 +5,7 @@ Fine-tuning a multilingual speech foundation model to identify which Indian lang
 Built as a deep learning project at Saarland University (Neural Networks: Theory and Implementation).
 
 ---
+**Authors:** Akash Chavan, Vaishnavi, Gauhar Khan
 
 ## Overview
 
