@@ -1,65 +1,104 @@
-# Indian Language Classification
+# Indic Spoken Language Identification (SLID)
 
-## Steps to Submit the Script on HTCondor
+Fine-tuning a multilingual speech foundation model to identify which Indian language is being spoken in an audio clip, with a custom audio augmentation pipeline to improve robustness.
 
-### 1. SSH into the Server
+Built as a deep learning project at Saarland University (Neural Networks: Theory and Implementation).
 
-```bash
-ssh neuronet_team239@conduit2.hpc.uni-saarland.de
+---
+
+## Overview
+
+Spoken Language Identification (SLID) is the task of predicting the language of an utterance directly from raw audio. This project fine-tunes a pretrained multilingual speech model for SLID across Indic languages and studies whether **waveform-level augmentation** improves classification performance.
+
+**Key idea:** pretrained speech foundation models already encode rich acoustic representations, but they are sensitive to recording conditions. Augmenting the training audio (pitch, noise, masking) exposes the model to more acoustic variation and improves generalisation.
+
+---
+
+## Approach
+
+**Base model:** [`facebook/mms-300m`](https://huggingface.co/facebook/mms-300m) — Meta's Massively Multilingual Speech encoder (300M params), used as an audio classification backbone.
+
+Also evaluated:
+- `utter-project/mHuBERT-147`
+- `facebook/wav2vec2-xls-r-300m`
+
+**Dataset:** `badrex/nnti-dataset-full` (Hugging Face), 16 kHz audio, multi-class Indic language labels.
+
+**Augmentation pipeline** — each transform applied stochastically (p = 0.5) during training only:
+
+| Transform | Detail |
+|---|---|
+| Pitch shift | ±3 semitones (`torchaudio.transforms.PitchShift`) |
+| Gaussian noise | Additive, scale sampled from `U(0.001, 0.01)` |
+| Time masking | Contiguous span of 5–15% of the waveform zeroed out |
+
+Augmentation is applied to the raw waveform *before* feature extraction, so the model sees genuinely different acoustic inputs each epoch.
+
+---
+
+## Training setup
+
+| Setting | Value |
+|---|---|
+| Objective | Multi-class audio classification (`AutoModelForAudioClassification`) |
+| Optimiser | AdamW, LR `2e-5` |
+| Schedule | Cosine decay, 15% warmup |
+| Batch size | 8 (× 4 gradient accumulation → effective 32) |
+| Epochs | 20 |
+| Weight decay | 0.05 |
+| Model selection | Best checkpoint on validation loss |
+| Tracking | Weights & Biases (`Indic-SLID` project) |
+
+Trained on the Saarland University CS GPU cluster (1× GPU, 4 CPUs, 16 GB RAM) via **HTCondor**, using a **Docker** image for a reproducible environment.
+
+---
+
+## Evaluation
+
+- **Confusion matrix** — per-language precision/recall, showing which language pairs the model confuses.
+- **t-SNE projection** of the learned embeddings — visualising whether languages form separable clusters in representation space.
+
+Both artefacts are written to `indic-SLID/inprogress/` after a run.
+
+---
+
+## Repository structure
+
+```
+.
+├── audio_ml.py        # Full pipeline: data loading, augmentation, fine-tuning, evaluation
+├── audio_ml.sub       # HTCondor submit file (GPU job, Docker universe)
+├── Dockerfile.txt     # Container definition for the training environment
+└── README.md
 ```
 
-### 2. Switch to nnti_project directory
+---
 
-.py and .sub files are already saved in `runlogs/` directory, so just need to switch to this directory:
+## Running it
+
+### Locally
 
 ```bash
-cd nnti_project
+pip install torch torchaudio transformers datasets wandb scikit-learn matplotlib seaborn
+python audio_ml.py
 ```
 
-### 3. Create the Output Log Directory
+Set `HF_TOKEN` and `WANDB_API_KEY` as environment variables if you want dataset access and experiment tracking.
 
-HTCondor writes logs to `runlogs/`, which must exist before submitting:
+### On an HTCondor cluster
 
 ```bash
 mkdir -p runlogs
-```
-
-### 4. Submit the Job
-
-```bash
 condor_submit audio_ml.sub
+
+condor_q                       # job status
+tail -f runlogs/audio_ml.*.log # live logs
 ```
 
-### 5. Monitor the Job
+Outputs (trained model, `confusion_matrix.png`, `tsne.png`) are transferred back to `indic-SLID/inprogress/` on completion.
 
-Check job status:
+---
 
-```bash
-condor_q
-```
+## Tech stack
 
-Watch live log output:
-
-```bash
-tail -f runlogs/audio_ml.*.log
-```
-
-Check stdout/stderr:
-
-```bash
-tail -f runlogs/audio_ml.*.out
-tail -f runlogs/audio_ml.*.err
-```
-
-### 7. Retrieve Output
-
-After the job completes, HTCondor transfers `indic-SLID/inprogress/` back to submission directory. Copy it to your local machine:
-
-```bash
-scp -r neuronet_team239@conduit2.hpc.uni-saarland.de:~/nnti_project/inprogress .
-```
-
-The output directory will contain:
-- Saved model
-- `confusion_matrix.png`
-- `tsne.png`
+`Python` · `PyTorch` · `torchaudio` · `Hugging Face Transformers` · `Datasets` · `Weights & Biases` · `scikit-learn` · `HTCondor` · `Docker`
